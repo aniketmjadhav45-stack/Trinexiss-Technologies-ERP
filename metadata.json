@@ -1,0 +1,8 @@
+{
+  "name": "Trinexiss ERP & CRM",
+  "description": "Unified AI-powered ERP and CRM system for Trinexiss Technologies, managing projects, client leads, financials, employee attendance, and providing advanced Gemini insights & weekly reports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
