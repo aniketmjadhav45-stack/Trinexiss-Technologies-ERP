@@ -413,5 +413,92 @@ export const INITIAL_ERP_DATA: ERPData = {
       'Invoice INV-2026-004 in project p2 is Overdue. Action required: Send immediate communication reminder to Apex group.',
       'Employee Sunita Dwivedi is tagged with an Unexcused Absence on June 16, resulting in immediate productivity dips.'
     ]
-  }
+  },
+  companyInfo: {
+    name: 'Trinexiss Technologies',
+    logo: 'ShieldCheck',
+    email: 'info@trinexiss.com',
+    phone: '+91 98765 43210',
+    address: 'Trinexiss Tech Hub, Sector 62, Noida, India',
+    gstNumber: '09AAACT9835R1ZP',
+    industry: 'Enterprise AI & Cloud SaaS',
+    website: 'https://trinexiss.com'
+  },
+  rolePermissions: {
+    founder: ['View dashboards', 'Manage companies', 'View all projects', 'View employees', 'View invoices', 'View reports', 'System settings', 'User management'],
+    admin: ['Add employees', 'Edit employees', 'Delete employees', 'Create company accounts', 'Add client company', 'Create projects', 'Assign projects', 'Generate invoices', 'Manage project boards', 'Approve users'],
+    aiEngineer: ['ERP optimization', 'Workflow automation', 'AI integrations', 'Dashboard improvements', 'Bug fixing', 'Analytics optimization'],
+    employee: ['View assigned projects', 'Update tasks', 'View profile', 'View invoices assigned', 'Update task status']
+  },
+  activityLogs: [
+    { id: 'act-1', timestamp: '2026-06-19T09:00:00Z', user: 'Sunita Dwivedi', action: 'Added Shweta Dwivedi to staff list', category: 'Employee' },
+    { id: 'act-2', timestamp: '2026-06-19T10:15:00Z', user: 'Aniket Jadhav', action: 'Optimized dashboard analytics widgets', category: 'AI' },
+    { id: 'act-3', timestamp: '2026-06-18T14:30:00Z', user: 'Founder', action: 'Created new project "Innovate Healthcare Overhaul"', category: 'Project' },
+    { id: 'act-4', timestamp: '2026-06-17T08:00:00Z', user: 'Sunita Dwivedi', action: 'Generated Invoice INV-2026-003 for Apex Retailers', category: 'Invoice' }
+  ],
+  transactions: [
+    {
+      id: 'tx-1',
+      type: 'Income',
+      category: 'Client Payment',
+      amount: 15000,
+      description: 'Milestone 1 invoice payment cleared for SaaS Enterprise ERP Integration',
+      date: '2026-06-12',
+      status: 'Cleared'
+    },
+    {
+      id: 'tx-2',
+      type: 'Expense',
+      category: 'Salary',
+      amount: 4500,
+      description: 'Monthly payroll dispatch for Sweta Singh (Lead Full Stack Developer)',
+      date: '2026-06-01',
+      status: 'Cleared'
+    },
+    {
+      id: 'tx-3',
+      type: 'Expense',
+      category: 'Software Subscription',
+      amount: 480,
+      description: 'Monthly centralized GitHub Enterprise & AWS cloud instances subscription bill',
+      date: '2026-06-05',
+      status: 'Cleared'
+    },
+    {
+      id: 'tx-4',
+      type: 'Income',
+      category: 'Client Payment',
+      amount: 9000,
+      description: 'Initial design prototype signoff payment - Apex Chatbot Support Integration',
+      date: '2026-06-15',
+      status: 'Cleared'
+    },
+    {
+      id: 'tx-5',
+      type: 'Expense',
+      category: 'Operational Expense',
+      amount: 1250,
+      description: 'Noida branch office utilities, lease, and regional operational upkeep billing',
+      date: '2026-06-10',
+      status: 'Cleared'
+    },
+    {
+      id: 'tx-6',
+      type: 'Expense',
+      category: 'Salary',
+      amount: 5000,
+      description: 'Monthly payroll dispatch for Aniket Jadhav (Senior Architect)',
+      date: '2026-06-01',
+      status: 'Cleared'
+    },
+    {
+      id: 'tx-7',
+      type: 'Income',
+      category: 'Client Payment',
+      amount: 12000,
+      description: 'Overdue healthcare portal patient dashboard UI signoff payment received',
+      date: '2026-06-18',
+      status: 'Cleared'
+    }
+  ]
 };

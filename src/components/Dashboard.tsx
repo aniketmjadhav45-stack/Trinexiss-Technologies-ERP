@@ -17,17 +17,21 @@ import {
   Layers,
   Heart,
   BarChart3,
-  BadgeAlert
+  BadgeAlert,
+  LayoutDashboard,
+  PieChart
 } from 'lucide-react';
-import { ERPData, ClientLead, Project, Employee } from '../types.ts';
+import { ERPData, ClientLead, Project, Employee, UserSession } from '../types.ts';
+import FounderDashboard from './FounderDashboard.tsx';
 
 interface DashboardProps {
   data: ERPData;
   onTriggerAudit: () => void;
   isAiAnalyzing: boolean;
+  session: UserSession;
 }
 
-export default function Dashboard({ data, onTriggerAudit, isAiAnalyzing }: DashboardProps) {
+export default function Dashboard({ data, onTriggerAudit, isAiAnalyzing, session }: DashboardProps) {
   const today = '2026-06-19';
   const managerEmail = 'info@trinexiss.com';
 
@@ -36,6 +40,10 @@ export default function Dashboard({ data, onTriggerAudit, isAiAnalyzing }: Dashb
   const [reportSubject, setReportSubject] = useState('Trinexiss Technologies - Executive Weekly Status Report');
   const [isSendingReport, setIsSendingReport] = useState(false);
   const [reportSentStatus, setReportSentStatus] = useState<string | null>(null);
+
+  // Toggle for Founder vs standard dashboard view
+  const [activeDashboardMode, setActiveDashboardMode] = useState<'operations' | 'executive'>('operations');
+  const canSeeExecutive = session.role === 'Founder' || session.role === 'Admin';
 
   // 1. Core General Metrics
   const activeProjectsCount = data.projects.filter(p => p.status !== 'Completed').length;
@@ -111,6 +119,287 @@ export default function Dashboard({ data, onTriggerAudit, isAiAnalyzing }: Dashb
     }, 1500);
   };
 
+  if (session.role === 'Employee') {
+    // 1. My Projects: find all projects where employee is assigned
+    const myProjects = data.projects.filter(p => 
+      p.assignedEmployees.some(emp => emp.name === session.fullName || emp.id === session.employeeId)
+    );
+
+    // 2. My Tasks: find all tasks from these projects assigned to the employee
+    const myTasks: { task: any, project: Project }[] = [];
+    myProjects.forEach(proj => {
+      const tasks = proj.tasks || [];
+      tasks.forEach(t => {
+        if (t.assignedTo.includes(session.fullName)) {
+          myTasks.push({ task: t, project: proj });
+        }
+      });
+    });
+
+    // 3. Upcoming Deadlines: sort projects & tasks by closest deadline
+    const upcomingDeadlines = [
+      ...myProjects.map(p => ({
+        type: 'Project',
+        title: p.name,
+        date: p.deadline,
+        badge: p.status,
+        color: 'text-indigo-600 bg-indigo-50 border-indigo-100'
+      })),
+      ...myTasks.map(({ task, project }) => ({
+        type: `Task (${project.name})`,
+        title: task.title,
+        date: task.dueDate || project.deadline,
+        badge: task.priority,
+        color: task.priority === 'High' ? 'text-rose-700 bg-rose-50 border-rose-100' : 'text-slate-600 bg-slate-50 border-slate-100'
+      }))
+    ].sort((a, b) => a.date.localeCompare(b.date));
+
+    // 4. Notifications: filter notifications where user is 'All' or session.fullName / session.email
+    const myNotifications = (data.notifications || []).filter(n => 
+      n.user === 'All' || n.user === session.fullName || n.user === session.email
+    );
+
+    // 5. Progress Overview: average progress of assigned projects
+    const avgProgress = myProjects.length > 0 
+      ? Math.round(myProjects.reduce((acc, p) => acc + p.progress, 0) / myProjects.length) 
+      : 0;
+
+    return (
+      <div className="space-y-6 animate-fadeIn pb-12">
+        {/* Welcome Banner */}
+        <div className="bg-slate-900 text-white rounded-3xl p-6 sm:p-8 relative overflow-hidden shadow-sm">
+          <div className="relative z-10 space-y-2 max-w-xl text-left">
+            <span className="text-[10px] bg-emerald-500 text-slate-900 font-extrabold px-3 py-1 rounded-full uppercase tracking-wider">
+              Employee Workstation
+            </span>
+            <h1 className="text-2xl sm:text-3xl font-black tracking-tight leading-none pt-1">
+              Welcome back, {session.fullName}
+            </h1>
+            <p className="text-xs text-slate-350 leading-relaxed">
+              Check your custom task backlog, track scheduled sprint deadlines, and review central workspace updates.
+            </p>
+          </div>
+          <div className="absolute top-1/2 -translate-y-1/2 right-6 hidden md:block opacity-15">
+            <Briefcase className="h-40 w-40 text-white" />
+          </div>
+        </div>
+
+        {/* Top metrics grids */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/85 shadow-3xs text-left">
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Assigned Projects</span>
+            <p className="text-2xl font-black text-slate-900 font-mono mt-1">{myProjects.length}</p>
+          </div>
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/85 shadow-3xs text-left">
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Delegated Backlog Tasks</span>
+            <p className="text-2xl font-black text-slate-900 font-mono mt-1">{myTasks.length}</p>
+          </div>
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/85 shadow-3xs text-left">
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Workload Progress</span>
+            <div className="flex items-center gap-3 mt-1.5">
+              <span className="text-2xl font-black text-slate-900 font-mono">{avgProgress}%</span>
+              <div className="flex-1 bg-slate-100 h-2 rounded-full overflow-hidden">
+                <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${avgProgress}%` }}></div>
+              </div>
+            </div>
+          </div>
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/85 shadow-3xs text-left">
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Urgent Deliverables</span>
+            <p className="text-2xl font-black text-rose-600 font-mono mt-1">
+              {upcomingDeadlines.filter(d => d.badge === 'High' || d.badge === 'In Progress').length}
+            </p>
+          </div>
+        </div>
+
+        {/* Columns Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Main workspace (My Projects & Tasks) */}
+          <div className="lg:col-span-2 space-y-6">
+            
+            {/* My Projects Panel */}
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/85 shadow-3xs space-y-4">
+              <h3 className="text-xs font-bold text-slate-900 uppercase tracking-widest border-b border-slate-50 pb-2 flex items-center gap-1.5 text-slate-700">
+                <Briefcase className="h-4 w-4 text-indigo-500" />
+                <span>My contract portfolios</span>
+              </h3>
+              
+              <div className="space-y-3">
+                {myProjects.length > 0 ? (
+                  myProjects.map(p => (
+                    <div key={p.id} className="p-4 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-slate-50 transition flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 text-left">
+                      <div>
+                        <p className="text-xs font-bold text-slate-900">{p.name}</p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">Client: {p.clientName} • Stack: {p.tools.join(', ')}</p>
+                      </div>
+                      <div className="flex items-center gap-4 w-full sm:w-auto justify-between sm:justify-end">
+                        <span className="text-[10px] bg-white border border-slate-200 px-2 py-0.5 rounded font-mono font-bold text-slate-600">
+                          Due {p.deadline}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-bold text-slate-700">{p.progress}%</span>
+                          <div className="w-16 bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                            <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${p.progress}%` }}></div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-slate-400 text-center py-6">You are not currently allocated to any client contract portfolios.</p>
+                )}
+              </div>
+            </div>
+
+            {/* My Tasks Panel */}
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/85 shadow-3xs space-y-4">
+              <h3 className="text-xs font-bold text-slate-900 uppercase tracking-widest border-b border-slate-50 pb-2 flex items-center gap-1.5 text-slate-700">
+                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                <span>My agile tasks</span>
+              </h3>
+
+              <div className="space-y-3">
+                {myTasks.length > 0 ? (
+                  myTasks.map(({ task, project }) => (
+                    <div key={task.id} className="p-3.5 rounded-xl border border-slate-100 bg-white shadow-3xs hover:border-slate-300 transition flex justify-between items-center text-left">
+                      <div className="space-y-1 text-left">
+                        <span className={`inline-block px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${
+                          task.priority === 'High' ? 'bg-rose-50 text-rose-700 border border-rose-100' :
+                          task.priority === 'Medium' ? 'bg-amber-50 text-amber-700' : 'bg-slate-50 text-slate-600'
+                        }`}>
+                          {task.priority} Priority
+                        </span>
+                        <p className="text-xs font-bold text-slate-800 leading-snug">{task.title}</p>
+                        <p className="text-[10px] text-slate-400">Project scope: {project.name}</p>
+                      </div>
+                      
+                      <div className="text-right space-y-1 shrink-0">
+                        <span className="text-[10px] bg-slate-50 px-2 py-1 rounded font-mono font-bold text-slate-600">
+                          {task.status}
+                        </span>
+                        <p className="text-[9px] text-slate-400 font-mono mt-0.5">Due {task.dueDate || project.deadline}</p>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-slate-400 text-center py-6">All tasks completed! You don't have any pending delegated tickets.</p>
+                )}
+              </div>
+            </div>
+
+          </div>
+
+          {/* Sidebar workspace (Notifications & Upcoming Deadlines) */}
+          <div className="space-y-6">
+            
+            {/* Upcoming Deadlines Panel */}
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/85 shadow-3xs space-y-4">
+              <h3 className="text-xs font-bold text-slate-900 uppercase tracking-widest border-b border-slate-50 pb-2 flex items-center gap-1.5 text-slate-700">
+                <Clock className="h-4 w-4 text-rose-500" />
+                <span>Upcoming schedule</span>
+              </h3>
+
+              <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+                {upcomingDeadlines.length > 0 ? (
+                  upcomingDeadlines.map((dl, idx) => (
+                    <div key={idx} className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-left flex justify-between items-center text-xs">
+                      <div className="space-y-0.5 max-w-[70%]">
+                        <p className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wide">{dl.type}</p>
+                        <p className="font-bold text-slate-800 truncate">{dl.title}</p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="font-mono font-bold text-slate-700 block">{dl.date}</span>
+                        <span className={`inline-block text-[8px] font-black uppercase px-1 py-0.5 rounded ${dl.color}`}>
+                          {dl.badge}
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-slate-400 text-center py-6">No deadlines listed on your active horizon.</p>
+                )}
+              </div>
+            </div>
+
+            {/* Notifications Panel */}
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/85 shadow-3xs space-y-4">
+              <h3 className="text-xs font-bold text-slate-900 uppercase tracking-widest border-b border-slate-50 pb-2 flex items-center gap-1.5 text-slate-700">
+                <Mail className="h-4 w-4 text-emerald-500" />
+                <span>Corporation Broadcasts</span>
+              </h3>
+
+              <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+                {myNotifications.length > 0 ? (
+                  myNotifications.map((n) => (
+                    <div key={n.id} className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-left space-y-1">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-extrabold text-slate-850">{n.title}</span>
+                        <span className="text-[8px] font-mono text-slate-400">{n.timestamp.substring(11, 16)}</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500 leading-relaxed">{n.message}</p>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-slate-400 text-center py-6">No active broadcasts or alerts registered.</p>
+                )}
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (activeDashboardMode === 'executive' && canSeeExecutive) {
+    return (
+      <div className="space-y-6">
+        {/* Dynamic Greetings Bar with AI status summary */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center p-6 bg-slate-900 text-white rounded-2xl shadow-md border border-slate-800 gap-4">
+          <div>
+            <h1 className="text-xl font-bold tracking-tight">Trinexiss Global Command Center</h1>
+            <p className="text-xs text-slate-400 mt-1">
+              Analyzing company operations: {data.projects.length} Projects, {data.clients.length} Corporate Accounts, and {data.employees.length} Engineers.
+            </p>
+            <div className="flex gap-2 mt-2">
+              <span className="text-[10px] uppercase bg-slate-800 border border-slate-700 text-teal-400 px-2 py-0.5 rounded-md font-semibold tracking-wider font-mono">
+                Live: {data.aiInsights?.weeklyReport || 'Awaiting Sync'}
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={onTriggerAudit}
+            disabled={isAiAnalyzing}
+            className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 font-semibold text-xs px-5 py-2.5 rounded-xl text-slate-950 transition-all active:scale-95 cursor-pointer disabled:opacity-50 shrink-0"
+          >
+            <Sparkles className="h-4 w-4 animate-spin text-slate-950" />
+            <span>{isAiAnalyzing ? 'Extracting Insights...' : 'Run Gemini Audit Command'}</span>
+          </button>
+        </div>
+
+        {/* Executive/Founder Desk Toggle Selector */}
+        <div className="flex gap-2 border-b border-slate-200 pb-1">
+          <button
+            onClick={() => setActiveDashboardMode('operations')}
+            className="flex items-center gap-2 px-4 py-2 border-b-2 text-xs font-bold uppercase transition duration-150 cursor-pointer border-transparent text-slate-400 hover:text-slate-600"
+          >
+            <LayoutDashboard className="h-4 w-4" />
+            <span>Operations Matrix Center</span>
+          </button>
+          
+          <button
+            onClick={() => setActiveDashboardMode('executive')}
+            className="flex items-center gap-2 px-4 py-2 border-b-2 text-xs font-bold uppercase transition duration-150 cursor-pointer border-indigo-600 text-indigo-650 font-extrabold"
+          >
+            <PieChart className="h-4 w-4" />
+            <span>Founder Executive Desk</span>
+          </button>
+        </div>
+
+        <FounderDashboard data={data} session={session} />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       
@@ -136,6 +425,35 @@ export default function Dashboard({ data, onTriggerAudit, isAiAnalyzing }: Dashb
           <span>{isAiAnalyzing ? 'Extracting Insights...' : 'Run Gemini Audit Command'}</span>
         </button>
       </div>
+
+      {/* Executive/Founder Desk Toggle Selector */}
+      {canSeeExecutive && (
+        <div className="flex gap-2 border-b border-slate-200 pb-1">
+          <button
+            onClick={() => setActiveDashboardMode('operations')}
+            className={`flex items-center gap-2 px-4 py-2 border-b-2 text-xs font-bold uppercase transition duration-150 cursor-pointer ${
+              activeDashboardMode === 'operations'
+                ? 'border-slate-900 text-slate-900'
+                : 'border-transparent text-slate-400 hover:text-slate-600'
+            }`}
+          >
+            <LayoutDashboard className="h-4 w-4" />
+            <span>Operations Matrix Center</span>
+          </button>
+          
+          <button
+            onClick={() => setActiveDashboardMode('executive')}
+            className={`flex items-center gap-2 px-4 py-2 border-b-2 text-xs font-bold uppercase transition duration-150 cursor-pointer ${
+              activeDashboardMode === 'executive'
+                ? 'border-indigo-600 text-indigo-650 font-extrabold'
+                : 'border-transparent text-slate-400 hover:text-slate-600'
+            }`}
+          >
+            <PieChart className="h-4 w-4" />
+            <span>Founder Executive Desk</span>
+          </button>
+        </div>
+      )}
 
       {/* KPI Core Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

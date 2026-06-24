@@ -15,19 +15,47 @@ import {
   ChevronDown,
   ChevronUp,
   FilePlus,
-  Plus
+  Plus,
+  Search,
+  Trash2,
+  Edit,
+  Save,
+  Building,
+  FileText
 } from 'lucide-react';
-import { ClientLead, ERPData, Meeting, Proposal } from '../types.ts';
+import { ClientLead, ERPData, Meeting, Proposal, UserSession } from '../types.ts';
 
 interface CRMProps {
   data: ERPData;
   onSaveData: (newData: ERPData) => void;
+  session?: UserSession;
 }
 
-export default function CRM({ data, onSaveData }: CRMProps) {
+export default function CRM({ data, onSaveData, session }: CRMProps) {
   const [filterType, setFilterType] = useState<'All' | 'Client' | 'Lead'>('All');
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [isAddingLead, setIsAddingLead] = useState(false);
+
+  // Search & Filter state definitions
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterSegment, setFilterSegment] = useState<'All' | 'Domestic' | 'International'>('All');
+
+  // Edit State definitions
+  const [isEditing, setIsEditing] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editCompany, setEditCompany] = useState('');
+  const [editType, setEditType] = useState<'Client' | 'Lead'>('Client');
+  const [editIndustry, setEditIndustry] = useState('');
+  const [editCountry, setEditCountry] = useState('');
+  const [editSegmentation, setEditSegmentation] = useState<'Domestic' | 'International'>('Domestic');
+  const [editHealthScore, setEditHealthScore] = useState('80');
+  const [editAddress, setEditAddress] = useState('');
+  const [editGstNumber, setEditGstNumber] = useState('');
+  const [editWebsite, setEditWebsite] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+  const [editLogo, setEditLogo] = useState('');
 
   // New Lead state definitions
   const [name, setName] = useState('');
@@ -43,6 +71,11 @@ export default function CRM({ data, onSaveData }: CRMProps) {
   const [country, setCountry] = useState('');
   const [segmentation, setSegmentation] = useState<'Domestic' | 'International'>('Domestic');
   const [healthScore, setHealthScore] = useState('80');
+  const [address, setAddress] = useState('');
+  const [gstNumber, setGstNumber] = useState('');
+  const [website, setWebsite] = useState('');
+  const [notes, setNotes] = useState('');
+  const [clientLogo, setClientLogo] = useState('Building');
 
   // Meeting logger inputs
   const [meetingTopic, setMeetingTopic] = useState('');
@@ -77,12 +110,31 @@ export default function CRM({ data, onSaveData }: CRMProps) {
       industry: industry || 'SaaS',
       country: country || 'India',
       segmentation,
-      healthScore: Number(healthScore) || 80
+      healthScore: Number(healthScore) || 80,
+      address,
+      gstNumber,
+      website: website || 'https://trinexiss.com',
+      notes,
+      clientLogo
     };
+
+    const newNotifications = [...(data.notifications || [])];
+    if (data.notificationsEnabled !== false) {
+      newNotifications.push({
+        id: `notif-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        user: 'All',
+        title: `New Client Registered`,
+        message: `${newLead.company} (Rep: ${newLead.name}) has been integrated into the central CRM directory by ${session.fullName}.`,
+        read: false,
+        type: 'success'
+      });
+    }
 
     onSaveData({
       ...data,
-      clients: [...data.clients, newLead]
+      clients: [...data.clients, newLead],
+      notifications: newNotifications
     });
 
     // Reset fields
@@ -98,6 +150,11 @@ export default function CRM({ data, onSaveData }: CRMProps) {
     setCountry('');
     setSegmentation('Domestic');
     setHealthScore('80');
+    setAddress('');
+    setGstNumber('');
+    setWebsite('');
+    setNotes('');
+    setClientLogo('Building');
   };
 
   // Change lead pipeline stage
@@ -193,9 +250,107 @@ export default function CRM({ data, onSaveData }: CRMProps) {
     setProposalCost('');
   };
 
+  const startEditing = (client: ClientLead) => {
+    setEditName(client.name);
+    setEditEmail(client.email);
+    setEditPhone(client.phone || '');
+    setEditCompany(client.company);
+    setEditType(client.type);
+    setEditIndustry(client.industry || '');
+    setEditCountry(client.country || '');
+    setEditSegmentation(client.segmentation || 'Domestic');
+    setEditHealthScore(String(client.healthScore || 80));
+    setEditAddress(client.address || '');
+    setEditGstNumber(client.gstNumber || '');
+    setEditWebsite(client.website || '');
+    setEditNotes(client.notes || '');
+    setEditLogo(client.clientLogo || '');
+    setIsEditing(true);
+  };
+
+  const handleSaveChanges = (clientId: string) => {
+    if (!editName || !editCompany || !editEmail) {
+      alert('Representative Name, Corporate Name and Email ID are required.');
+      return;
+    }
+    const updatedClients = data.clients.map(c => {
+      if (c.id === clientId) {
+        return {
+          ...c,
+          name: editName,
+          email: editEmail,
+          phone: editPhone,
+          company: editCompany,
+          type: editType,
+          industry: editIndustry,
+          country: editCountry,
+          segmentation: editSegmentation,
+          healthScore: Number(editHealthScore) || 80,
+          address: editAddress,
+          gstNumber: editGstNumber,
+          website: editWebsite,
+          notes: editNotes,
+          clientLogo: editLogo
+        };
+      }
+      return c;
+    });
+
+    const newLog = {
+      id: `act-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      user: session?.fullName || 'Admin',
+      action: `Modified client company profile for ${editCompany}`,
+      category: 'Client' as const,
+      module: 'CRM'
+    };
+
+    onSaveData({
+      ...data,
+      clients: updatedClients,
+      activityLogs: [newLog, ...(data.activityLogs || [])]
+    });
+
+    setIsEditing(false);
+  };
+
+  const handleDeleteClient = (clientId: string, companyName: string) => {
+    if (!window.confirm(`Are you sure you want to completely delete the client profile for ${companyName}?`)) {
+      return;
+    }
+    const updatedClients = data.clients.filter(c => c.id !== clientId);
+
+    const newLog = {
+      id: `act-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      user: session?.fullName || 'Admin',
+      action: `Deleted client company profile for ${companyName}`,
+      category: 'Client' as const,
+      module: 'CRM'
+    };
+
+    onSaveData({
+      ...data,
+      clients: updatedClients,
+      activityLogs: [newLog, ...(data.activityLogs || [])]
+    });
+
+    setSelectedLeadId(null);
+    setIsEditing(false);
+  };
+
   const filteredClients = data.clients.filter(c => {
-    if (filterType === 'All') return true;
-    return c.type === filterType;
+    const matchesSearch = 
+      c.company.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      c.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (c.industry || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (c.country || '').toLowerCase().includes(searchTerm.toLowerCase());
+
+    const matchesType = filterType === 'All' ? true : c.type === filterType;
+    const matchesSegment = filterSegment === 'All' ? true : c.segmentation === filterSegment;
+
+    return matchesSearch && matchesType && matchesSegment;
   });
 
   return (
@@ -244,6 +399,37 @@ export default function CRM({ data, onSaveData }: CRMProps) {
             <Plus className="h-4 w-4" />
             <span>Create Entity</span>
           </button>
+        </div>
+      </div>
+
+      {/* Search & Granular Filtering Controls */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-200/80 flex flex-col md:flex-row gap-4 items-center shadow-xs">
+        <div className="relative w-full md:flex-grow">
+          <span className="absolute inset-y-0 left-0 flex items-center pl-3">
+            <Search className="h-4 w-4 text-slate-400" />
+          </span>
+          <input
+            type="text"
+            placeholder="Search client directory by company, person name, email, country, or industry..."
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-slate-900 focus:bg-white transition"
+          />
+        </div>
+
+        <div className="flex gap-2 w-full md:w-auto shrink-0">
+          <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl text-xs font-semibold w-full md:w-auto">
+            <span className="text-[10px] uppercase font-bold text-slate-400">Market segment:</span>
+            <select
+              value={filterSegment}
+              onChange={e => setFilterSegment(e.target.value as any)}
+              className="bg-transparent border-none focus:outline-none text-slate-750 font-bold"
+            >
+              <option value="All">All Segments</option>
+              <option value="Domestic">Domestic Market</option>
+              <option value="International">International Market</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -386,6 +572,49 @@ export default function CRM({ data, onSaveData }: CRMProps) {
                 className="mt-1 w-full bg-slate-50/50 border border-slate-200 rounded-lg p-2 text-xs focus:ring-1 focus:ring-emerald-500 focus:outline-none font-semibold"
               />
             </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-slate-500 uppercase">GST Registration ID</label>
+              <input
+                type="text"
+                placeholder="e.g. 09AAACT9835R1ZP"
+                value={gstNumber}
+                onChange={e => setGstNumber(e.target.value)}
+                className="mt-1 w-full bg-slate-50/50 border border-slate-200 rounded-lg p-2 text-xs focus:ring-1 focus:ring-emerald-500 focus:outline-none font-semibold"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-slate-500 uppercase">Website URL</label>
+              <input
+                type="url"
+                placeholder="https://example.com"
+                value={website}
+                onChange={e => setWebsite(e.target.value)}
+                className="mt-1 w-full bg-slate-50/50 border border-slate-200 rounded-lg p-2 text-xs focus:ring-1 focus:ring-emerald-500 focus:outline-none font-semibold"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-slate-500 uppercase">Registered Headquarters Address</label>
+              <input
+                type="text"
+                placeholder="City office info..."
+                value={address}
+                onChange={e => setAddress(e.target.value)}
+                className="mt-1 w-full bg-slate-50/50 border border-slate-200 rounded-lg p-2 text-xs focus:ring-1 focus:ring-emerald-500 focus:outline-none font-semibold"
+              />
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="block text-[11px] font-bold text-slate-500 uppercase">Strategic Notes / Directives</label>
+              <textarea
+                placeholder="Important background info regarding client account relations..."
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                className="mt-1 w-full bg-slate-50/50 border border-slate-200 rounded-lg p-2 text-xs focus:ring-1 focus:ring-emerald-500 focus:outline-none font-semibold"
+              />
+            </div>
           </div>
 
           <div className="flex justify-end gap-2.5 pt-2">
@@ -510,71 +739,316 @@ export default function CRM({ data, onSaveData }: CRMProps) {
             return (
               <div className="bg-white p-5 rounded-2xl border border-slate-200/85 shadow-xs space-y-5 animate-fadeIn">
                 
-                {/* Visual title */}
-                <div className="pb-4 border-b border-slate-100">
-                  <div className="flex justify-between items-start">
-                    <h3 className="font-bold text-slate-900 text-md">{client.company}</h3>
-                    <span className="text-[10px] bg-slate-100 text-slate-500 p-1 rounded-md font-mono">{client.type}</span>
-                  </div>
-                  <p className="text-xs text-slate-400 mt-1">Lead Representative: <span className="font-semibold text-slate-600">{client.name}</span></p>
-
-                  {/* contact details */}
-                  <div className="space-y-1.5 mt-3 text-xs text-slate-500">
-                    <div className="flex items-center gap-2">
-                      <Mail className="h-3.5 w-3.5 text-slate-400" />
-                      <span>{client.email}</span>
+                {isEditing ? (
+                  /* EDIT MODE FORM */
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+                      <h4 className="font-bold text-slate-900 text-sm">Edit Account Profile</h4>
+                      <button
+                        type="button"
+                        onClick={() => setIsEditing(false)}
+                        className="text-xs font-semibold text-slate-500 hover:text-slate-800"
+                      >
+                        Cancel
+                      </button>
                     </div>
-                    {client.phone && (
-                      <div className="flex items-center gap-2">
-                        <Phone className="h-3.5 w-3.5 text-slate-400" />
-                        <span>{client.phone}</span>
+
+                    <div className="space-y-3 text-xs font-semibold text-slate-650">
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-slate-400">Representative Name *</label>
+                        <input
+                          type="text"
+                          value={editName}
+                          onChange={e => setEditName(e.target.value)}
+                          className="mt-1 w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-slate-400">Corporate Name *</label>
+                        <input
+                          type="text"
+                          value={editCompany}
+                          onChange={e => setEditCompany(e.target.value)}
+                          className="mt-1 w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-slate-400">Email ID *</label>
+                        <input
+                          type="email"
+                          value={editEmail}
+                          onChange={e => setEditEmail(e.target.value)}
+                          className="mt-1 w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[10px] uppercase font-bold text-slate-400">Phone</label>
+                          <input
+                            type="text"
+                            value={editPhone}
+                            onChange={e => setEditPhone(e.target.value)}
+                            className="mt-1 w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] uppercase font-bold text-slate-400">Strategy</label>
+                          <select
+                            value={editType}
+                            onChange={e => setEditType(e.target.value as any)}
+                            className="mt-1 w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs"
+                          >
+                            <option value="Lead">Lead</option>
+                            <option value="Client">Client</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[10px] uppercase font-bold text-slate-400">Industry</label>
+                          <input
+                            type="text"
+                            value={editIndustry}
+                            onChange={e => setEditIndustry(e.target.value)}
+                            className="mt-1 w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] uppercase font-bold text-slate-400">Country</label>
+                          <input
+                            type="text"
+                            value={editCountry}
+                            onChange={e => setEditCountry(e.target.value)}
+                            className="mt-1 w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[10px] uppercase font-bold text-slate-400">Segment</label>
+                          <select
+                            value={editSegmentation}
+                            onChange={e => setEditSegmentation(e.target.value as any)}
+                            className="mt-1 w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs"
+                          >
+                            <option value="Domestic">Domestic</option>
+                            <option value="International">International</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] uppercase font-bold text-slate-400">Health (0-100)</label>
+                          <input
+                            type="number"
+                            value={editHealthScore}
+                            onChange={e => setEditHealthScore(e.target.value)}
+                            className="mt-1 w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-slate-400">GST Registration ID</label>
+                        <input
+                          type="text"
+                          value={editGstNumber}
+                          onChange={e => setEditGstNumber(e.target.value)}
+                          className="mt-1 w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-mono"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-slate-400">Website URL</label>
+                        <input
+                          type="text"
+                          value={editWebsite}
+                          onChange={e => setEditWebsite(e.target.value)}
+                          className="mt-1 w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-slate-400">Headquarters Address</label>
+                        <input
+                          type="text"
+                          value={editAddress}
+                          onChange={e => setEditAddress(e.target.value)}
+                          className="mt-1 w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-slate-400">Strategic Notes</label>
+                        <textarea
+                          rows={2}
+                          value={editNotes}
+                          onChange={e => setEditNotes(e.target.value)}
+                          className="mt-1 w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="pt-3 border-t border-slate-100 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleSaveChanges(client.id)}
+                        className="flex-1 flex items-center justify-center gap-1 bg-slate-900 text-white font-bold text-xs py-2 rounded-xl"
+                      >
+                        <Save className="h-3.5 w-3.5" />
+                        <span>Save Profile</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsEditing(false)}
+                        className="px-3 border border-slate-200 text-slate-600 rounded-xl text-xs hover:bg-slate-50"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  /* VIEW MODE DISPLAY */
+                  <>
+                    {/* Account operations bar */}
+                    <div className="flex justify-between items-center pb-3 border-b border-slate-100">
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => startEditing(client)}
+                          className="flex items-center gap-1 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-750 font-bold text-[11px] rounded-lg transition"
+                        >
+                          <Edit className="h-3 w-3 text-slate-500" />
+                          <span>Edit</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteClient(client.id, client.company)}
+                          className="flex items-center gap-1 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 font-bold text-[11px] rounded-lg transition"
+                        >
+                          <Trash2 className="h-3 w-3 text-rose-500" />
+                          <span>Delete</span>
+                        </button>
+                      </div>
+                      <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md font-bold tracking-wide uppercase font-mono">{client.type}</span>
+                    </div>
+
+                    {/* Visual Title Header */}
+                    <div>
+                      <h3 className="font-bold text-slate-900 text-md tracking-tight">{client.company}</h3>
+                      <p className="text-xs text-slate-450 mt-1">Lead Representative: <span className="font-bold text-slate-650">{client.name}</span></p>
+
+                      <div className="space-y-1.5 mt-3.5 text-xs text-slate-555 font-semibold">
+                        <div className="flex items-center gap-2">
+                          <Mail className="h-3.5 w-3.5 text-slate-400" />
+                          <span>{client.email}</span>
+                        </div>
+                        {client.phone && (
+                          <div className="flex items-center gap-2">
+                            <Phone className="h-3.5 w-3.5 text-slate-400" />
+                            <span>{client.phone}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Corporate Metadata Metrics Breakdown */}
+                    <div className="bg-slate-50 border border-slate-150 p-3.5 rounded-xl text-xs space-y-3 h-auto">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-1">Client Parameters</p>
+                      <div className="grid grid-cols-2 gap-2 text-[11px] font-semibold text-slate-600">
+                        <div>
+                          <p className="text-[9px] uppercase text-slate-400">Industry Sector</p>
+                          <p className="text-slate-800 font-bold mt-0.5">{client.industry || 'SaaS Tech'}</p>
+                        </div>
+                        <div>
+                          <p className="text-[9px] uppercase text-slate-400">Geographic Base</p>
+                          <p className="text-slate-800 font-bold mt-0.5">{client.country || 'India'}</p>
+                        </div>
+                        <div>
+                          <p className="text-[9px] uppercase text-slate-400">Market Segment</p>
+                          <p className="text-slate-800 font-bold mt-0.5">{client.segmentation || 'Domestic'}</p>
+                        </div>
+                        <div>
+                          <p className="text-[9px] uppercase text-slate-400">Client Health Index</p>
+                          <p className={`font-black mt-0.5 ${(client.healthScore || 80) >= 90 ? 'text-emerald-600' : 'text-indigo-600'}`}>
+                            {client.healthScore || 85}% Safe
+                          </p>
+                        </div>
+                        {client.gstNumber && (
+                          <div className="col-span-2">
+                            <p className="text-[9px] uppercase text-slate-400">Tax ID / GST Number</p>
+                            <p className="text-slate-800 font-mono font-bold mt-0.5">{client.gstNumber}</p>
+                          </div>
+                        )}
+                        {client.website && (
+                          <div className="col-span-2">
+                            <p className="text-[9px] uppercase text-slate-400">Website</p>
+                            <a href={client.website.startsWith('http') ? client.website : `https://${client.website}`} target="_blank" rel="noreferrer" className="text-indigo-600 hover:underline font-bold mt-0.5 block">{client.website}</a>
+                          </div>
+                        )}
+                        {client.address && (
+                          <div className="col-span-2">
+                            <p className="text-[9px] uppercase text-slate-400">Headquarters Address</p>
+                            <p className="text-slate-700 font-medium mt-0.5 leading-snug">{client.address}</p>
+                          </div>
+                        )}
+                        {client.notes && (
+                          <div className="col-span-2 bg-white/60 p-2 rounded border border-slate-100">
+                            <p className="text-[9px] uppercase text-slate-400">Strategic Account Notes</p>
+                            <p className="text-slate-600 font-medium mt-0.5 leading-snug italic">{client.notes}</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Associated Projects Block */}
+                    <div className="bg-slate-50 border border-slate-200/60 p-3.5 rounded-xl text-xs space-y-2">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-150 pb-1 flex items-center justify-between">
+                        <span>Assigned Projects Portfolio</span>
+                        <span className="bg-slate-200 px-1.5 py-0.2 rounded font-mono text-slate-600">
+                          {((data.projects || []).filter(p => p.clientName?.toLowerCase() === client.company.toLowerCase())).length}
+                        </span>
+                      </p>
+                      <div className="space-y-1.5 max-h-32 overflow-y-auto font-semibold">
+                        {((data.projects || []).filter(p => p.clientName?.toLowerCase() === client.company.toLowerCase())).map((project) => (
+                          <div key={project.id} className="flex justify-between items-center bg-white p-2 rounded-lg border border-slate-100 text-[11px]">
+                            <span className="font-bold text-slate-800 truncate max-w-[130px]">{project.name}</span>
+                            <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold uppercase ${
+                              project.status === 'Completed' ? 'bg-emerald-50 text-emerald-700' :
+                              project.status === 'In Progress' ? 'bg-indigo-50 text-indigo-700' :
+                              'bg-amber-50 text-amber-700'
+                            }`}>
+                              {project.status}
+                            </span>
+                          </div>
+                        ))}
+                        {((data.projects || []).filter(p => p.clientName?.toLowerCase() === client.company.toLowerCase())).length === 0 && (
+                          <p className="text-[10px] text-slate-400 italic py-1 text-center">No projects assigned currently.</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Lead stage configuration (Only for Leeds) */}
+                    {client.type === 'Lead' && (
+                      <div className="space-y-2">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Update Pipeline Stage</p>
+                        <select
+                          value={client.leadStage}
+                          onChange={(e) => handleStageChange(client.id, e.target.value as any)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:ring-1 focus:ring-emerald-500 focus:outline-none font-semibold text-slate-700"
+                        >
+                          <option value="Prospect">Prospect</option>
+                          <option value="Qualified">Qualified</option>
+                          <option value="Proposal Sent">Proposal Sent</option>
+                          <option value="Negotiation">Negotiation</option>
+                          <option value="Closed">Closed / Won</option>
+                        </select>
                       </div>
                     )}
-                  </div>
-                </div>
 
-                {/* Corporate Metadata Metrics Breakdown */}
-                <div className="bg-slate-50 border border-slate-150 p-3.5 rounded-xl text-xs space-y-2 h-auto">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-1">Client Parameters</p>
-                  <div className="grid grid-cols-2 gap-2 text-[11px] font-semibold text-slate-600">
-                    <div>
-                      <p className="text-[9px] uppercase text-slate-400">Industry Sector</p>
-                      <p className="text-slate-800 font-bold mt-0.5">{client.industry || 'SaaS Tech'}</p>
-                    </div>
-                    <div>
-                      <p className="text-[9px] uppercase text-slate-400">Geographic Base</p>
-                      <p className="text-slate-800 font-bold mt-0.5">{client.country || 'India'}</p>
-                    </div>
-                    <div>
-                      <p className="text-[9px] uppercase text-slate-400">Market Segment</p>
-                      <p className="text-slate-800 font-bold mt-0.5">{client.segmentation || 'Domestic'}</p>
-                    </div>
-                    <div>
-                      <p className="text-[9px] uppercase text-slate-400">Client Health Index</p>
-                      <p className={`font-black mt-0.5 ${(client.healthScore || 80) >= 90 ? 'text-emerald-600' : 'text-indigo-600'}`}>
-                        {client.healthScore || 85}% Safe
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Lead stage configuration (Only for Leeds) */}
-                {client.type === 'Lead' && (
-                  <div className="space-y-2">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Update Pipeline Stage</p>
-                    <select
-                      value={client.leadStage}
-                      onChange={(e) => handleStageChange(client.id, e.target.value as any)}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:ring-1 focus:ring-emerald-500 focus:outline-none font-semibold text-slate-700"
-                    >
-                      <option value="Prospect">Prospect</option>
-                      <option value="Qualified">Qualified</option>
-                      <option value="Proposal Sent">Proposal Sent</option>
-                      <option value="Negotiation">Negotiation</option>
-                      <option value="Closed">Closed / Won</option>
-                    </select>
-                  </div>
-                )}
 
                 {/* AI Score breakdown panel */}
                 {client.type === 'Lead' && client.leadScore !== undefined && (
@@ -707,10 +1181,11 @@ export default function CRM({ data, onSaveData }: CRMProps) {
                     </div>
                   </div>
                 </div>
-
-              </div>
-            );
-          })() : (
+              </>
+            )}
+          </div>
+        );
+      })() : (
             <div className="hidden lg:block bg-slate-50 p-10 border border-slate-200 border-dashed rounded-2xl text-center text-xs text-slate-400">
               <PlusSquare className="h-8 w-8 text-slate-300 mx-auto mb-2" />
               <p>Select any corporate contact from the ledger to inspect logs, register touchpoints, or outline proposals.</p>

@@ -5,7 +5,10 @@ import Projects from './components/Projects.tsx';
 import CRM from './components/CRM.tsx';
 import Employees from './components/Employees.tsx';
 import Finance from './components/Finance.tsx';
-import { ERPData } from './types.ts';
+import CalendarView from './components/CalendarView.tsx';
+import Auth from './components/Auth.tsx';
+import Settings from './components/Settings.tsx';
+import { ERPData, UserSession } from './types.ts';
 import { INITIAL_ERP_DATA } from './seedData.ts';
 import { 
   Sparkles, 
@@ -125,6 +128,21 @@ export default function App() {
   const [apiNotice, setApiNotice] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [loadingStateMsg, setLoadingStateMsg] = useState<string>('Syncing core enterprise database...');
+
+  // Track currently established login session
+  const [session, setSession] = useState<UserSession | null>(() => {
+    try {
+      const stored = localStorage.getItem('trinexiss_erp_session');
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  // Track client dark mode preferences
+  const [darkMode, setDarkMode] = useState<boolean>(() => {
+    return localStorage.getItem('trinexiss_darkMode') === 'true';
+  });
 
   // 1. Initial data loading protocol with high-fidelity client recovery
   useEffect(() => {
@@ -275,8 +293,27 @@ export default function App() {
     );
   }
 
+  // Pre-empt login checks before disclosing any corporate parameters
+  if (!session) {
+    return (
+      <div className={`min-h-screen flex items-center justify-center p-4 transition-colors duration-200 ${darkMode ? 'dark bg-slate-950' : 'bg-slate-50'}`}>
+        <Auth
+          onLoginSuccess={(s) => {
+            setSession(s);
+            localStorage.setItem('trinexiss_erp_session', JSON.stringify(s));
+          }}
+        />
+      </div>
+    );
+  }
+
+  const handleLogout = () => {
+    setSession(null);
+    localStorage.removeItem('trinexiss_erp_session');
+  };
+
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+    <div className={`min-h-screen flex flex-col font-sans transition-colors duration-150 ${darkMode ? 'dark bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       
       {/* Upper Navigation Header */}
       <Header
@@ -285,6 +322,8 @@ export default function App() {
         isAiAnalyzing={isAiAnalyzing}
         onTriggerAudit={handleTriggerAudit}
         hasApiNotice={apiNotice}
+        session={session}
+        onLogout={handleLogout}
       />
 
       {/* Main Container with subtle route animation container */}
@@ -296,6 +335,7 @@ export default function App() {
                 data={data}
                 onTriggerAudit={handleTriggerAudit}
                 isAiAnalyzing={isAiAnalyzing}
+                session={session}
               />
             )}
             
@@ -303,6 +343,7 @@ export default function App() {
               <Projects
                 data={data}
                 onSaveData={handleSaveData}
+                session={session}
               />
             )}
             
@@ -310,6 +351,7 @@ export default function App() {
               <CRM
                 data={data}
                 onSaveData={handleSaveData}
+                session={session}
               />
             )}
             
@@ -317,6 +359,7 @@ export default function App() {
               <Employees
                 data={data}
                 onSaveData={handleSaveData}
+                session={session}
               />
             )}
             
@@ -324,6 +367,27 @@ export default function App() {
               <Finance
                 data={data}
                 onSaveData={handleSaveData}
+              />
+            )}
+
+            {currentTab === 'calendar' && (
+              <CalendarView
+                data={data}
+                session={session}
+              />
+            )}
+
+            {currentTab === 'settings' && (
+              <Settings
+                data={data}
+                onSaveData={handleSaveData}
+                session={session}
+                onLogout={handleLogout}
+                darkMode={darkMode}
+                setDarkMode={(val) => {
+                  setDarkMode(val);
+                  localStorage.setItem('trinexiss_darkMode', String(val));
+                }}
               />
             )}
           </div>
