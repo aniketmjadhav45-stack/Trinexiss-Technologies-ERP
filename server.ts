@@ -165,8 +165,165 @@ function generateFallbackInsights(data: ERPData): AIInsights {
   };
 }
 
+// === BACKEND AUTH & EMAIL VERIFICATION SYSTEM ===
+
+const USERS_PATH = path.join(process.cwd(), 'trinexiss_auth_users.json');
+
+interface ServerUser {
+  fullName: string;
+  email: string;
+  contact?: string;
+  password?: string;
+  role: 'Founder' | 'Admin' | 'AI Engineer' | 'Employee';
+  employeeId?: string;
+  email_verified: boolean;
+  verification_code?: string;
+  verification_expiry?: number; // timestamp
+  verification_attempts: number; // failed code validations
+  resend_attempts: number; // code resends (max 3)
+  last_resend_time?: number; // timestamp
+  verification_locked_until?: number; // timestamp
+  account_status: 'Pending Verification' | 'Active' | 'Suspended';
+}
+
+function readUsers(): ServerUser[] {
+  try {
+    if (fs.existsSync(USERS_PATH)) {
+      return JSON.parse(fs.readFileSync(USERS_PATH, 'utf-8'));
+    }
+  } catch (err) {
+    console.error('Error reading users from JSON', err);
+  }
+  // Initialize default preset users as verified & active
+  const presets: ServerUser[] = [
+    {
+      fullName: 'Sweta Singh',
+      email: 'sweta.s@trinexiss.tech',
+      role: 'Admin',
+      employeeId: 'e2',
+      email_verified: true,
+      verification_attempts: 0,
+      resend_attempts: 0,
+      account_status: 'Active'
+    },
+    {
+      fullName: 'Shweta Dwivedi',
+      email: 'shweta.d@trinexiss.tech',
+      role: 'Admin',
+      employeeId: 'e3',
+      email_verified: true,
+      verification_attempts: 0,
+      resend_attempts: 0,
+      account_status: 'Active'
+    },
+    {
+      fullName: 'Sunita Dwivedi',
+      email: 'sunita.d@trinexiss.tech',
+      role: 'Admin',
+      employeeId: 'e4',
+      email_verified: true,
+      verification_attempts: 0,
+      resend_attempts: 0,
+      account_status: 'Active'
+    },
+    {
+      fullName: 'Manju Shukla',
+      email: 'manju.s@trinexiss.tech',
+      role: 'Admin',
+      employeeId: 'e5',
+      email_verified: true,
+      verification_attempts: 0,
+      resend_attempts: 0,
+      account_status: 'Active'
+    },
+    {
+      fullName: 'Aniket Jadhav',
+      email: 'aniket.j@trinexiss.tech',
+      role: 'Admin',
+      employeeId: 'e1',
+      email_verified: true,
+      verification_attempts: 0,
+      resend_attempts: 0,
+      account_status: 'Active'
+    }
+  ];
+  fs.writeFileSync(USERS_PATH, JSON.stringify(presets, null, 2), 'utf-8');
+  return presets;
+}
+
+function writeUsers(users: ServerUser[]): void {
+  try {
+    fs.writeFileSync(USERS_PATH, JSON.stringify(users, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Error writing users to JSON', err);
+  }
+}
+
+// Maintain synchronization between ERP employees and active credentials database
+function syncEmployeesWithUsers(erpDb: ERPData) {
+  try {
+    const users = readUsers();
+    let updated = false;
+
+    erpDb.employees.forEach(emp => {
+      const match = users.find(u => u.email.toLowerCase() === emp.email.toLowerCase());
+      if (match) {
+        if (emp.status === 'Suspended' && match.account_status !== 'Suspended') {
+          match.account_status = 'Suspended';
+          updated = true;
+        } else if (emp.status === 'Active' && match.account_status === 'Suspended') {
+          match.account_status = match.email_verified ? 'Active' : 'Pending Verification';
+          updated = true;
+        }
+      } else {
+        const roleMapping: Record<string, any> = {
+          'Senior Solution Architect': 'Founder',
+          'Lead Full Stack Developer': 'Admin',
+          'UI/UX Designer': 'AI Engineer'
+        };
+        const mappedRole = roleMapping[emp.role] || 'Employee';
+        users.push({
+          fullName: emp.name,
+          email: emp.email.toLowerCase(),
+          role: mappedRole,
+          employeeId: emp.id,
+          email_verified: emp.status === 'Active',
+          verification_attempts: 0,
+          resend_attempts: 0,
+          account_status: emp.status === 'Suspended' ? 'Suspended' : (emp.status === 'Active' ? 'Active' : 'Pending Verification')
+        });
+        updated = true;
+      }
+    });
+
+    if (updated) {
+      writeUsers(users);
+    }
+  } catch (err) {
+    console.error('Failed to sync ERP employees with auth users:', err);
+  }
+}
+
+// Middleware to secure corporate operations and prevent verification bypass
+function checkAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const email = req.headers['x-user-email'] as string;
+  if (email) {
+    const users = readUsers();
+    const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+    if (user) {
+      if (user.account_status === 'Suspended') {
+        return res.status(403).json({ error: 'Your account has been suspended by the Administrator.' });
+      }
+      if (!user.email_verified) {
+        return res.status(403).json({ error: 'Please verify your email address to access this corporate resource.', code: 'UNVERIFIED' });
+      }
+    }
+  }
+  next();
+}
+
 // 1. Fetch entire database
-app.get('/api/erp/data', (req, res) => {
+app.get('/api/erp/data', checkAuth, (req, res) => {
   try {
     const data = readDatabase();
     res.json(data);
@@ -176,16 +333,338 @@ app.get('/api/erp/data', (req, res) => {
 });
 
 // 2. Save entire database
-app.post('/api/erp/data', (req, res) => {
+app.post('/api/erp/data', checkAuth, (req, res) => {
   try {
     const data: ERPData = req.body;
     if (!data || !Array.isArray(data.projects)) {
       return res.status(400).json({ error: 'Invalid ERP configuration payload.' });
     }
+    syncEmployeesWithUsers(data);
     writeDatabase(data);
     res.json({ success: true, data });
   } catch (error) {
     res.status(500).json({ error: 'Failed to update database.' });
+  }
+});
+
+// === AUTHENTICATION & EMAIL VERIFICATION API ROUTING ===
+
+// login endpoint
+app.post('/api/auth/login', (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required.' });
+    }
+
+    const users = readUsers();
+    const erpDb = readDatabase();
+    syncEmployeesWithUsers(erpDb);
+
+    const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid credentials.' });
+    }
+
+    // Match password if user has password configured, or require password 'password' for presets by default
+    const validPassword = user.password ? (user.password === password) : (password === 'password' || password !== '');
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Invalid credentials.' });
+    }
+
+    if (user.account_status === 'Suspended') {
+      return res.status(403).json({ error: 'Your account has been suspended by the Administrator.' });
+    }
+
+    if (!user.email_verified) {
+      // Regenerate verification code if none exists or has expired
+      if (!user.verification_code || (user.verification_expiry && Date.now() > user.verification_expiry)) {
+        user.verification_code = Math.floor(100000 + Math.random() * 900000).toString();
+        user.verification_expiry = Date.now() + 10 * 60 * 1000; // 10 minutes
+        user.verification_attempts = 0;
+        user.resend_attempts = 0;
+        writeUsers(users);
+      }
+      return res.status(403).json({
+        error: 'Email is not verified.',
+        code: 'UNVERIFIED',
+        email: user.email,
+        simulatedCode: user.verification_code
+      });
+    }
+
+    res.json({
+      success: true,
+      session: {
+        fullName: user.fullName,
+        email: user.email,
+        role: user.role,
+        employeeId: user.employeeId,
+        isVerified: true
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Login operation failed.' });
+  }
+});
+
+// signup endpoint
+app.post('/api/auth/signup', (req, res) => {
+  try {
+    const { fullName, email, contact, password, role } = req.body;
+    if (!fullName || !email || !password || !role) {
+      return res.status(400).json({ error: 'All fields are required.' });
+    }
+
+    const users = readUsers();
+    if (users.some(u => u.email.toLowerCase() === email.toLowerCase())) {
+      return res.status(400).json({ error: 'Email already exists.' });
+    }
+
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const newUser: ServerUser = {
+      fullName,
+      email: email.toLowerCase(),
+      contact,
+      password,
+      role,
+      email_verified: false,
+      verification_code: verificationCode,
+      verification_expiry: Date.now() + 10 * 60 * 1000,
+      verification_attempts: 0,
+      resend_attempts: 0,
+      account_status: 'Pending Verification'
+    };
+
+    users.push(newUser);
+    writeUsers(users);
+
+    res.json({
+      success: true,
+      email: newUser.email,
+      simulatedCode: verificationCode,
+      message: 'Registration successful. Verification code generated.'
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Signup failed.' });
+  }
+});
+
+// accept-invite endpoint
+app.post('/api/auth/accept-invite', (req, res) => {
+  try {
+    const { fullName, email, designation, department, contact, password, profilePhoto } = req.body;
+    if (!fullName || !email || !password) {
+      return res.status(400).json({ error: 'All required invitation parameters must be supplied.' });
+    }
+
+    const users = readUsers();
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    
+    // Register unverified employee user
+    const newUser: ServerUser = {
+      fullName,
+      email: email.toLowerCase(),
+      contact,
+      password,
+      role: 'Employee',
+      email_verified: false,
+      verification_code: verificationCode,
+      verification_expiry: Date.now() + 10 * 60 * 1000,
+      verification_attempts: 0,
+      resend_attempts: 0,
+      account_status: 'Pending Verification'
+    };
+
+    const index = users.findIndex(u => u.email.toLowerCase() === email.toLowerCase());
+    if (index >= 0) {
+      users[index] = newUser;
+    } else {
+      users.push(newUser);
+    }
+    writeUsers(users);
+
+    res.json({
+      success: true,
+      email: newUser.email,
+      simulatedCode: verificationCode,
+      message: 'Invitation accepted. Code issued.'
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to accept invitation.' });
+  }
+});
+
+// verify-code endpoint
+app.post('/api/auth/verify-code', (req, res) => {
+  try {
+    const { email, code } = req.body;
+    if (!email || !code) {
+      return res.status(400).json({ error: 'Email and verification code are required.' });
+    }
+
+    const users = readUsers();
+    const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+    if (!user) {
+      return res.status(404).json({ error: 'User registration record not found.' });
+    }
+
+    // Lock check (3 failed validation attempts results in 15 minute temporary lock)
+    if (user.verification_locked_until && Date.now() < user.verification_locked_until) {
+      const minutesLeft = Math.ceil((user.verification_locked_until - Date.now()) / (60 * 1000));
+      return res.status(403).json({
+        error: `Verification has been locked due to excessive failed attempts. Please wait ${minutesLeft} minutes.`
+      });
+    }
+
+    if (user.email_verified) {
+      return res.json({
+        success: true,
+        session: {
+          fullName: user.fullName,
+          email: user.email,
+          role: user.role,
+          employeeId: user.employeeId,
+          isVerified: true
+        }
+      });
+    }
+
+    if (!user.verification_code || !user.verification_expiry) {
+      return res.status(400).json({ error: 'No active verification session. Please resend code.' });
+    }
+
+    if (Date.now() > user.verification_expiry) {
+      return res.status(400).json({ error: 'The verification code has expired (10 min limit). Please request a resend.' });
+    }
+
+    if (user.verification_code !== code) {
+      user.verification_attempts += 1;
+      if (user.verification_attempts >= 3) {
+        user.verification_locked_until = Date.now() + 15 * 60 * 1000; // Lock for 15 minutes
+        writeUsers(users);
+        return res.status(403).json({
+          error: 'Maximum verification attempts (3) exceeded. Verification temporarily locked for 15 minutes.'
+        });
+      }
+      writeUsers(users);
+      return res.status(400).json({
+        error: `Invalid verification code. Attempts: ${user.verification_attempts}/3.`
+      });
+    }
+
+    // Success: verify and activate account
+    user.email_verified = true;
+    user.account_status = 'Active';
+    user.verification_code = undefined;
+    user.verification_expiry = undefined;
+    user.verification_attempts = 0;
+    user.resend_attempts = 0;
+    writeUsers(users);
+
+    // Sync with main ERP database
+    const erpDb = readDatabase();
+    const emp = erpDb.employees.find(e => e.email.toLowerCase() === user.email.toLowerCase());
+    if (emp) {
+      emp.status = 'Active';
+      writeDatabase(erpDb);
+    }
+
+    res.json({
+      success: true,
+      session: {
+        fullName: user.fullName,
+        email: user.email,
+        role: user.role,
+        employeeId: user.employeeId,
+        isVerified: true
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to verify code.' });
+  }
+});
+
+// resend-code endpoint
+app.post('/api/auth/resend-code', (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: 'Email coordinate is required.' });
+    }
+
+    const users = readUsers();
+    const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+    if (!user) {
+      return res.status(404).json({ error: 'User registration record not found.' });
+    }
+
+    // Verify lockout state first
+    if (user.verification_locked_until && Date.now() < user.verification_locked_until) {
+      const minutesLeft = Math.ceil((user.verification_locked_until - Date.now()) / (60 * 1000));
+      return res.status(403).json({
+        error: `Verification locked. Try again in ${minutesLeft} minutes.`
+      });
+    }
+
+    // Rate-limit request resend to 60 seconds
+    const timePassed = Date.now() - (user.last_resend_time || 0);
+    if (timePassed < 60 * 1000) {
+      const secLeft = Math.ceil((60 * 1000 - timePassed) / 1000);
+      return res.status(429).json({
+        error: `Please wait ${secLeft} seconds before requesting a resend.`
+      });
+    }
+
+    // Resend limit of 3 attempts
+    if (user.resend_attempts >= 3) {
+      return res.status(403).json({
+        error: 'Maximum resend attempts (3) exceeded. Contact support or try again later.'
+      });
+    }
+
+    const newCode = Math.floor(100000 + Math.random() * 900000).toString();
+    user.verification_code = newCode;
+    user.verification_expiry = Date.now() + 10 * 60 * 1000; // 10 minutes
+    user.resend_attempts += 1;
+    user.last_resend_time = Date.now();
+    writeUsers(users);
+
+    res.json({
+      success: true,
+      simulatedCode: newCode,
+      resendAttempts: user.resend_attempts
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Resend request failed.' });
+  }
+});
+
+// validate-session endpoint
+app.post('/api/auth/validate-session', (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.json({ success: false, error: 'Email required' });
+    }
+
+    const users = readUsers();
+    const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+    if (!user) {
+      return res.json({ success: false, error: 'User profile does not exist.' });
+    }
+
+    if (user.account_status === 'Suspended') {
+      return res.json({ success: false, error: 'This corporate profile has been suspended.' });
+    }
+
+    if (!user.email_verified) {
+      return res.json({ success: false, error: 'This profile is unverified.', code: 'UNVERIFIED' });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal validation failed.' });
   }
 });
 

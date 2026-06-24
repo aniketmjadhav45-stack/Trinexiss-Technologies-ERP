@@ -148,82 +148,64 @@ export default function Auth({ onLoginSuccess }: AuthProps) {
     }
   };
 
+  const [resendCountdown, setResendCountdown] = useState(0);
+
+  useEffect(() => {
+    let timer: any = null;
+    if (resendCountdown > 0) {
+      timer = setInterval(() => {
+        setResendCountdown(prev => prev - 1);
+      }, 1000);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [resendCountdown]);
+
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setInfoMessage('');
     
     if (!email || !password) {
       setError('Please fill in both email and password.');
       return;
     }
 
-    // Check if the user is suspended in the employee registry
-    try {
-      const cacheStored = localStorage.getItem('trinexiss_erp_cache');
-      if (cacheStored) {
-        const erpDb = JSON.parse(cacheStored);
-        if (erpDb && Array.isArray(erpDb.employees)) {
-          const emp = erpDb.employees.find((e: any) => e.email.toLowerCase() === email.toLowerCase());
-          if (emp && emp.status === 'Suspended') {
-            setError('Your account has been suspended by the Administrator. Access denied.');
+    fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    })
+      .then(async res => {
+        const data = await res.json();
+        if (!res.ok) {
+          if (data.code === 'UNVERIFIED') {
+            setEmail(data.email);
+            setMode('verify');
+            setVerifyCode('');
+            setResendCountdown(60);
+            setInfoMessage(`Verification code sent to ${data.email}. Code is ${data.simulatedCode || 'issued'}. Please enter it below to verify your email.`);
             return;
           }
+          throw new Error(data.error || 'Login failed.');
         }
-      }
-    } catch (err) {
-      console.warn('Could not verify suspension status on login:', err);
-    }
-
-    // 1. Check presets
-    const preset = LOGIN_PRESETS.find(p => p.email.toLowerCase() === email.toLowerCase());
-    if (preset) {
-      // Check if preset user has an employee ID
-      let empId = undefined;
-      try {
-        const cacheStored = localStorage.getItem('trinexiss_erp_cache');
-        if (cacheStored) {
-          const erpDb = JSON.parse(cacheStored);
-          const matchedEmp = erpDb?.employees?.find((e: any) => e.email.toLowerCase() === email.toLowerCase());
-          if (matchedEmp) empId = matchedEmp.id;
+        return data;
+      })
+      .then(data => {
+        if (data && data.success && data.session) {
+          onLoginSuccess(data.session);
         }
-      } catch {}
-
-      onLoginSuccess({
-        fullName: preset.name,
-        email: preset.email,
-        role: preset.role,
-        employeeId: empId,
-        isVerified: true
+      })
+      .catch(err => {
+        setError(err.message);
       });
-      return;
-    }
-
-    // 2. Check registered users
-    const users = getRegisteredUsers();
-    const matched = users.find(u => u.email.toLowerCase() === email.toLowerCase() && u.password === password);
-    
-    if (matched) {
-      if (!matched.isVerified) {
-        // Redirect to email verification screen
-        setMode('verify');
-        setInfoMessage(`Simulated verification sent to ${email}. Submit any 6 digit code.`);
-        return;
-      }
-      onLoginSuccess({
-        fullName: matched.fullName,
-        email: matched.email,
-        role: matched.role,
-        contactNumber: matched.contact,
-        isVerified: true
-      });
-    } else {
-      setError('Invalid credentials. Check email or utilize a quick access simulator login below.');
-    }
   };
 
   const handleAcceptInvite = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setInfoMessage('');
     
     if (!password || !confirmPassword || !contact) {
       setError('Please fill out all required fields.');
@@ -234,84 +216,66 @@ export default function Auth({ onLoginSuccess }: AuthProps) {
       setError('Passwords do not match.');
       return;
     }
-    
-    try {
-      // 1. Update invite status in trinexiss_invites
-      const storedInvites = localStorage.getItem('trinexiss_invites');
-      const invites = storedInvites ? JSON.parse(storedInvites) : [];
-      const updatedInvites = invites.map((inv: any) => {
-        if (inv.token === activeInvite.token) {
-          return { ...inv, status: 'Active' };
+
+    // Prepare full invitation details to construct the user
+    const payload = {
+      fullName: activeInvite.fullName,
+      email: activeInvite.email.toLowerCase(),
+      designation: activeInvite.designation,
+      department: activeInvite.department,
+      contact: contact,
+      password: password,
+      profilePhoto: profilePhoto,
+      token: activeInvite.token
+    };
+
+    fetch('/api/auth/accept-invite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+      .then(async res => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to accept invitation.');
+        return data;
+      })
+      .then(data => {
+        if (data.success) {
+          // Update invite local status for UI consistency
+          try {
+            const storedInvites = localStorage.getItem('trinexiss_invites');
+            const invites = storedInvites ? JSON.parse(storedInvites) : [];
+            const updatedInvites = invites.map((inv: any) => {
+              if (inv.token === activeInvite.token) {
+                return { ...inv, status: 'Active' };
+              }
+              return inv;
+            });
+            localStorage.setItem('trinexiss_invites', JSON.stringify(updatedInvites));
+          } catch {}
+
+          // Transition to verify mode
+          setEmail(activeInvite.email.toLowerCase());
+          setMode('verify');
+          setVerifyCode('');
+          setResendCountdown(60);
+          setInfoMessage(`Invitation accepted successfully! Enter the 6-digit verification code sent to your email (${activeInvite.email}). Simulated code: ${data.simulatedCode}`);
+          
+          // Clear URL parameter
+          if (window.history.replaceState) {
+            window.history.replaceState({}, document.title, window.location.pathname);
+          }
         }
-        return inv;
+      })
+      .catch(err => {
+        setError(err.message);
       });
-      localStorage.setItem('trinexiss_invites', JSON.stringify(updatedInvites));
-      
-      // 2. Add as an active Employee in trinexiss_erp_cache
-      const cacheStored = localStorage.getItem('trinexiss_erp_cache');
-      let erpDb: any = cacheStored ? JSON.parse(cacheStored) : null;
-      
-      const newEmployeeId = `e-${Math.floor(1000 + Math.random() * 9000)}`;
-      const newEmployee: Employee = {
-        id: newEmployeeId,
-        name: activeInvite.fullName,
-        role: activeInvite.designation,
-        email: activeInvite.email.toLowerCase(),
-        hourlyRate: 45,
-        attendance: [],
-        leaves: [],
-        productivityScore: 90,
-        department: activeInvite.department,
-        profilePhoto: profilePhoto,
-        contactNumber: contact,
-        joiningDate: new Date().toISOString().split('T')[0],
-        status: 'Active',
-        assignedModules: ['My Profile'] // Default starting permission for RBAC
-      };
-      
-      if (erpDb && Array.isArray(erpDb.employees)) {
-        const filteredEmployees = erpDb.employees.filter((emp: any) => emp.email.toLowerCase() !== activeInvite.email.toLowerCase());
-        erpDb.employees = [...filteredEmployees, newEmployee];
-        localStorage.setItem('trinexiss_erp_cache', JSON.stringify(erpDb));
-      }
-      
-      // 3. Save as fully verified registered user in trinexiss_auth_users
-      const users = getRegisteredUsers();
-      const updatedUsers = users.filter(u => u.email.toLowerCase() !== activeInvite.email.toLowerCase());
-      const newUser = {
-        fullName: activeInvite.fullName,
-        email: activeInvite.email.toLowerCase(),
-        contact: contact,
-        password: password,
-        role: 'Employee',
-        isVerified: true,
-        profilePhoto: profilePhoto
-      };
-      updatedUsers.push(newUser);
-      localStorage.setItem('trinexiss_auth_users', JSON.stringify(updatedUsers));
-      
-      // 4. Log in successfully
-      onLoginSuccess({
-        fullName: activeInvite.fullName,
-        email: activeInvite.email.toLowerCase(),
-        role: 'Employee',
-        contactNumber: contact,
-        employeeId: newEmployeeId,
-        isVerified: true
-      });
-      
-      // Clean up URL query parameters
-      if (window.history.replaceState) {
-        window.history.replaceState({}, document.title, window.location.pathname);
-      }
-    } catch (err) {
-      setError('Failed to process and activate your employee profile.');
-    }
   };
 
   const handleSignup = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setInfoMessage('');
 
     if (!fullName || !email || !password || !confirmPassword) {
       setError('Please fill in all mandatory parameters.');
@@ -323,56 +287,88 @@ export default function Auth({ onLoginSuccess }: AuthProps) {
       return;
     }
 
-    // Check if email already registered in system
-    const existingPreset = LOGIN_PRESETS.some(p => p.email.toLowerCase() === email.toLowerCase());
-    const existingUsers = getRegisteredUsers().some(u => u.email.toLowerCase() === email.toLowerCase());
-    if (existingPreset || existingUsers) {
-      setError('Email already exists. Please login instead.');
-      return;
-    }
-
-    // Save as unverified simulation account
-    const newUser = {
-      fullName,
-      email,
-      contact,
-      password,
-      role,
-      isVerified: false
-    };
-
-    saveRegisteredUser(newUser);
-
-    // Prompt verification page
-    setMode('verify');
-    setInfoMessage(`Successfully registered! A mock confirmation email dispatch has been triggered for ${email}. Submit any 6 digit code to override.`);
+    fetch('/api/auth/signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fullName, email, contact, password, role })
+    })
+      .then(async res => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Signup failed.');
+        return data;
+      })
+      .then(data => {
+        if (data.success) {
+          setEmail(email.toLowerCase());
+          setMode('verify');
+          setVerifyCode('');
+          setResendCountdown(60);
+          setInfoMessage(`Successfully registered! A 6-digit verification code has been generated. Simulated code: ${data.simulatedCode}`);
+        }
+      })
+      .catch(err => {
+        setError(err.message);
+      });
   };
 
   const handleVerificationSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!verifyCode || verifyCode.length < 4) {
-      setError('Please input a valid verification code.');
+    setError('');
+    setInfoMessage('');
+
+    if (!verifyCode || verifyCode.length !== 6) {
+      setError('Please input a valid 6-digit verification code.');
       return;
     }
 
-    // Upgrade verification state
-    const users = getRegisteredUsers();
-    const updatedUsers = users.map(u => {
-      if (u.email.toLowerCase() === email.toLowerCase()) {
-        return { ...u, isVerified: true };
-      }
-      return u;
-    });
-    localStorage.setItem('trinexiss_auth_users', JSON.stringify(updatedUsers));
+    fetch('/api/auth/verify-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, code: verifyCode })
+    })
+      .then(async res => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Verification failed.');
+        return data;
+      })
+      .then(data => {
+        if (data.success && data.session) {
+          onLoginSuccess(data.session);
+        }
+      })
+      .catch(err => {
+        setError(err.message);
+      });
+  };
 
-    // Sign in successfully
-    onLoginSuccess({
-      fullName: fullName || 'Simulated User',
-      email: email,
-      role: role,
-      contactNumber: contact,
-      isVerified: true
-    });
+  const handleResendCode = () => {
+    setError('');
+    setInfoMessage('');
+
+    if (!email) {
+      setError('No active email target found for resending.');
+      return;
+    }
+
+    fetch('/api/auth/resend-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    })
+      .then(async res => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Resend failed.');
+        return data;
+      })
+      .then(data => {
+        if (data.success) {
+          setResendCountdown(60);
+          setInfoMessage(`A fresh 6-digit verification code has been generated. Simulated code: ${data.simulatedCode} (Attempt ${data.resendAttempts}/3)`);
+        }
+      })
+      .catch(err => {
+        setError(err.message);
+      });
   };
 
   const handleForgotPassword = (e: React.FormEvent) => {
@@ -897,44 +893,61 @@ export default function Auth({ onLoginSuccess }: AuthProps) {
           {/* MODE: EMAIL VERIFICATION VIEW */}
           {mode === 'verify' && (
             <form onSubmit={handleVerificationSubmit} className="space-y-4 text-center">
-              <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600">
-                <Terminal className="h-6 w-6" />
+              <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-emerald-50 border border-emerald-100 text-emerald-600">
+                <ShieldCheck className="h-6 w-6" />
               </div>
               <div className="space-y-2">
-                <h3 className="text-sm font-bold text-slate-950">Simulated Account Verification</h3>
-                <div className="text-[11px] text-slate-550 space-y-1.5 leading-relaxed bg-amber-50/50 border border-amber-200/50 p-3 rounded-xl text-left">
-                  <p className="font-bold text-amber-800">🔒 Local Sandbox Environment Notice:</p>
-                  <p>This is a simulated local environment. No physical email was dispatched to your inbox. All database parameters reside securely in your browser's local storage.</p>
-                  <p>You can proceed by typing <strong className="text-indigo-700 bg-indigo-50 px-1 py-0.5 rounded">123456</strong> or clicking the <strong className="text-emerald-700">Verify Account</strong> button below!</p>
-                </div>
+                <h3 className="text-sm font-bold text-slate-950">Confirm Verification Code</h3>
+                <p className="text-xs text-slate-500">
+                  Enter the 6-digit code sent to <strong className="text-slate-800">{email}</strong>.
+                </p>
+                {infoMessage && (
+                  <div className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-150 p-2.5 rounded-xl text-left font-medium leading-relaxed">
+                    {infoMessage}
+                  </div>
+                )}
               </div>
 
               <div className="space-y-1">
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Verification Bypass Code</label>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">6-Digit Code</label>
                 <input
                   type="text"
                   required
-                  placeholder="123456"
+                  placeholder="••••••"
                   maxLength={6}
                   value={verifyCode}
                   onChange={e => setVerifyCode(e.target.value)}
-                  className="text-center font-mono text-lg tracking-widest w-full max-w-[150px] mx-auto bg-slate-50 border border-slate-200 rounded-xl p-2.5 focus:ring-1 focus:ring-emerald-500 focus:outline-none focus:bg-white"
+                  className="text-center font-mono text-lg tracking-widest w-full max-w-[160px] mx-auto bg-slate-50 border border-slate-200 rounded-xl p-2.5 focus:ring-1 focus:ring-emerald-500 focus:outline-none focus:bg-white"
                 />
               </div>
 
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => { setMode('signup'); setError(''); setInfoMessage(''); }}
+                  onClick={() => { setMode('login'); setError(''); setInfoMessage(''); }}
                   className="flex-1 py-2 border border-slate-200 text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-50 transition"
                 >
-                  Back to Register
+                  Back to Sign In
                 </button>
                 <button
                   type="submit"
                   className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition active:scale-95"
                 >
                   Verify Account
+                </button>
+              </div>
+
+              <div className="pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  disabled={resendCountdown > 0}
+                  onClick={handleResendCode}
+                  className={`text-xs font-bold ${resendCountdown > 0 ? 'text-slate-400 cursor-not-allowed' : 'text-emerald-600 hover:text-emerald-800 hover:underline'}`}
+                >
+                  {resendCountdown > 0 
+                    ? `Resend Code in ${resendCountdown}s` 
+                    : 'Resend Verification Code'
+                  }
                 </button>
               </div>
             </form>

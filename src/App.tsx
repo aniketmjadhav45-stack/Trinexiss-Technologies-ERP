@@ -146,6 +146,27 @@ export default function App() {
 
   // 1. Initial data loading protocol with high-fidelity client recovery
   useEffect(() => {
+    // Session Validation: ensure user is active, verified, and not suspended on start
+    if (session) {
+      fetch('/api/auth/validate-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: session.email })
+      })
+        .then(async res => {
+          const resData = await res.json();
+          if (!res.ok || !resData.success) {
+            handleLogout();
+          } else {
+            setSession(resData.session);
+            localStorage.setItem('trinexiss_erp_session', JSON.stringify(resData.session));
+          }
+        })
+        .catch(err => {
+          console.warn('Session verification server unreachable, relying on client cache:', err);
+        });
+    }
+
     fetch('/api/erp/data')
       .then((res) => {
         if (!res.ok) throw new Error('Data fetch failed');
